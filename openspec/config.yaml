@@ -1,0 +1,48 @@
+schema: spec-driven
+
+context: |
+  Project: Google Account AutoManager (Gemini Account AutoManager)
+  
+  Tech stack:
+    Backend: Python 3.12, FastAPI, SQLite, Playwright, Selenium
+    Frontend: Vue 3, Vite, TailwindCSS
+    Package manager: uv (Python), npm (Node.js)
+    Browser automation: BitBrowser fingerprint browser (local API at 127.0.0.1:54345)
+  
+  Architecture:
+    - FastAPI backend with REST API + WebSocket for real-time updates
+    - Vue 3 SPA frontend with component-based architecture
+    - SQLite as single data source (accounts.db)
+    - Playwright/Selenium for browser automation tasks
+    - BitBrowser API integration for fingerprint browser management
+  
+  Key domains:
+    - Account management (CRUD, import/export, status tracking)
+    - Browser window management (create, restore, sync, delete via BitBrowser API)
+    - Task orchestration (2FA setup/reset, eligibility check, age verification, card binding)
+    - Web UI (management dashboard with real-time logs and progress)
+  
+  Conventions:
+    - Chinese comments in Python code
+    - Status-based account lifecycle: pending → link_ready → verified → subscribed (or ineligible/error)
+    - All automation tasks use BitBrowser fingerprint browser
+    - Configuration: accounts.txt, proxies.txt, cards.txt (separator-based text format)
+    - Database-first approach with text file export for compatibility
+  
+  Domain knowledge:
+    - Google account batch operations automation tool
+    - Handles 2FA (TOTP), eligibility verification (SheerID), age verification, card subscription binding
+    - Uses fingerprint browser to avoid detection
+    - Originally forked from Leclee/auto_bitbrowser
+
+rules:
+  proposal:
+    - Keep proposals concise and focused on one feature area
+    - Always consider impact on existing automation workflows
+    - Note any security implications for account credentials
+  tasks:
+    - Break tasks by module boundary (backend API, frontend, automation script)
+    - Include browser automation testing steps where applicable
+  specs:
+    - Use English for spec content, Chinese references are acceptable in examples
+    - Group specs by functional domain
