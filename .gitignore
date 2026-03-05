@@ -88,3 +88,6 @@ web/frontend/.turbo/
 Thumbs.db
 desktop.ini
 nul
+
+# Exclude local git worktrees
+.worktrees/
