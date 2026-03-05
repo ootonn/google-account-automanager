@@ -42,6 +42,17 @@ def set_config(key: str, value: str) -> None:
             conn.commit()
 
 
+def get_int_config(key: str, default: int) -> int:
+    """从数据库读取整数配置，异常时回退默认值。"""
+    value = get_config(key)
+    if value is None or value == "":
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def init_config_table() -> None:
     """初始化配置表"""
     with DBManager.get_db() as conn:
@@ -76,6 +87,12 @@ async def get_all_config():
         value = get_config(key)
         result[key] = value or ""
 
+    result["cpa_base_url"] = get_config("cpa_base_url") or ""
+    result["cpa_management_token"] = get_config("cpa_management_token") or ""
+    result["cpa_poll_timeout_seconds"] = get_int_config("cpa_poll_timeout_seconds", 300)
+    result["cpa_poll_interval_seconds"] = get_int_config("cpa_poll_interval_seconds", 2)
+    result["cpa_oauth_capture_timeout_seconds"] = get_int_config("cpa_oauth_capture_timeout_seconds", 180)
+
     return ConfigResponse(**result)
 
 
@@ -107,6 +124,26 @@ async def update_config(data: ConfigUpdate):
     if data.card_zip is not None:
         set_config("card_zip", data.card_zip)
         updated.append("card_zip")
+
+    if data.cpa_base_url is not None:
+        set_config("cpa_base_url", data.cpa_base_url)
+        updated.append("cpa_base_url")
+
+    if data.cpa_management_token is not None:
+        set_config("cpa_management_token", data.cpa_management_token)
+        updated.append("cpa_management_token")
+
+    if data.cpa_poll_timeout_seconds is not None:
+        set_config("cpa_poll_timeout_seconds", str(data.cpa_poll_timeout_seconds))
+        updated.append("cpa_poll_timeout_seconds")
+
+    if data.cpa_poll_interval_seconds is not None:
+        set_config("cpa_poll_interval_seconds", str(data.cpa_poll_interval_seconds))
+        updated.append("cpa_poll_interval_seconds")
+
+    if data.cpa_oauth_capture_timeout_seconds is not None:
+        set_config("cpa_oauth_capture_timeout_seconds", str(data.cpa_oauth_capture_timeout_seconds))
+        updated.append("cpa_oauth_capture_timeout_seconds")
 
     return {"message": "配置已更新", "updated": updated}
 
