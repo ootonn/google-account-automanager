@@ -80,6 +80,7 @@ class TaskType(str, Enum):
     bind_card = "bind_card"  # 绑卡订阅
     change_password = "change_password"  # 修改密码
     check_eligibility = "check_eligibility"  # 检测账号资格
+    cpa_oauth_bind = "cpa_oauth_bind"  # CPA OAuth 绑定（Antigravity）
 
 
 class TaskCreateRequest(BaseModel):
@@ -139,6 +140,11 @@ class ConfigUpdate(BaseModel):
     card_exp_year: Optional[str] = None
     card_cvv: Optional[str] = None
     card_zip: Optional[str] = None
+    cpa_base_url: Optional[str] = None
+    cpa_management_token: Optional[str] = None
+    cpa_poll_timeout_seconds: Optional[int] = None
+    cpa_poll_interval_seconds: Optional[int] = None
+    cpa_oauth_capture_timeout_seconds: Optional[int] = None
 
 
 class ConfigResponse(BaseModel):
@@ -149,3 +155,8 @@ class ConfigResponse(BaseModel):
     card_exp_year: str = ""
     card_cvv: str = ""
     card_zip: str = ""
+    cpa_base_url: str = ""
+    cpa_management_token: str = ""
+    cpa_poll_timeout_seconds: int = 300
+    cpa_poll_interval_seconds: int = 2
+    cpa_oauth_capture_timeout_seconds: int = 180
