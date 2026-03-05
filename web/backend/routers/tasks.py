@@ -18,7 +18,9 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from database import DBManager
 from ..schemas import TaskCreateRequest, TaskType, TaskStatus, TaskProgress, AccountProgressStatus
 from ..websocket import get_manager
-from .config import get_card_info, get_sheerid_api_key
+from ..services.cpa_management import CpaManagementClient, CpaManagementError
+from ..services.cpa_oauth_antigravity import open_and_run_antigravity_oauth
+from .config import get_card_info, get_sheerid_api_key, get_config, get_int_config
 
 router = APIRouter()
 
@@ -262,6 +264,31 @@ def ensure_browser_window(email: str, log_callback=None) -> str | None:
         return None
 
 
+def _get_cpa_runtime_config() -> dict:
+    """读取 CPA OAuth 运行配置（provider 固定 antigravity）。"""
+    return {
+        "base_url": (get_config("cpa_base_url") or "").strip(),
+        "management_token": (get_config("cpa_management_token") or "").strip(),
+        "poll_timeout_seconds": get_int_config("cpa_poll_timeout_seconds", 300),
+        "poll_interval_seconds": max(1, get_int_config("cpa_poll_interval_seconds", 2)),
+        "oauth_capture_timeout_seconds": get_int_config("cpa_oauth_capture_timeout_seconds", 180),
+    }
+
+
+def _extract_auth_url_and_state(payload: dict) -> tuple[str, str]:
+    """兼容不同 CPA 返回结构，提取授权 URL 与 state。"""
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    auth_url = (
+        payload.get("url")
+        or payload.get("auth_url")
+        or data.get("url")
+        or data.get("auth_url")
+        or ""
+    )
+    state = payload.get("state") or data.get("state") or ""
+    return str(auth_url), str(state)
+
+
 def run_task_sync(task_id: str, task_types: List[TaskType], emails: List[str], close_after: bool, concurrency: int = 1):
     """
     同步执行任务（在线程池中运行）
@@ -279,6 +306,7 @@ def run_task_sync(task_id: str, task_types: List[TaskType], emails: List[str], c
         TaskType.bind_card: 3,
         TaskType.change_password: 4,
         TaskType.check_eligibility: 5,
+        TaskType.cpa_oauth_bind: 6,
     }
     ordered_task_types = [
         t for _idx, t in sorted(
@@ -426,6 +454,7 @@ def run_task_sync(task_id: str, task_types: List[TaskType], emails: List[str], c
             TaskType.bind_card: "绑卡订阅",
             TaskType.change_password: "修改密码",
             TaskType.check_eligibility: "检测资格",
+            TaskType.cpa_oauth_bind: "CPA OAuth 绑定(Antigravity)",
         }.get(task_type, task_type.value))
     send_log("info", f"任务顺序: {' > '.join(ordered_labels)} | 并发数: {max_workers}", None)
 
@@ -457,6 +486,7 @@ def run_task_sync(task_id: str, task_types: List[TaskType], emails: List[str], c
                         TaskType.bind_card: "绑卡订阅",
                         TaskType.change_password: "修改密码",
                         TaskType.check_eligibility: "检测资格",
+                        TaskType.cpa_oauth_bind: "CPA OAuth 绑定(Antigravity)",
                     }.get(task_type, task_type.value)
 
                     send_account_progress(email, AccountProgressStatus.running.value, task_label)
@@ -528,6 +558,12 @@ def run_task_sync(task_id: str, task_types: List[TaskType], emails: List[str], c
                         )
                     elif task_type == TaskType.check_eligibility:
                         result = execute_check_eligibility(
+                            email,
+                            log_callback=lambda msg: send_log("info", msg, email),
+                            close_after=task_close_after,
+                        )
+                    elif task_type == TaskType.cpa_oauth_bind:
+                        result = execute_cpa_oauth_bind(
                             email,
                             log_callback=lambda msg: send_log("info", msg, email),
                             close_after=task_close_after,
@@ -643,6 +679,103 @@ def run_task_sync(task_id: str, task_types: List[TaskType], emails: List[str], c
         # 清理账号进度存储
         with account_progress_lock:
             account_progress_store.pop(task_id, None)
+
+
+def execute_cpa_oauth_bind(email: str, log_callback=None, close_after: bool = True) -> dict:
+    """执行 CPA OAuth 绑定（provider 固定 antigravity，全自动回调捕获）。"""
+    try:
+        cfg = _get_cpa_runtime_config()
+        base_url = cfg["base_url"]
+        token = cfg["management_token"]
+        poll_timeout_seconds = cfg["poll_timeout_seconds"]
+        poll_interval_seconds = cfg["poll_interval_seconds"]
+        oauth_capture_timeout_seconds = cfg["oauth_capture_timeout_seconds"]
+
+        if not base_url:
+            return {"success": False, "message": "缺少 cpa_base_url 配置"}
+        if not token:
+            return {"success": False, "message": "缺少 cpa_management_token 配置"}
+
+        browser_id = ensure_browser_window(email, log_callback)
+        if not browser_id:
+            return {"success": False, "message": "账号不存在或无法创建浏览器窗口"}
+
+        client = CpaManagementClient(base_url, token)
+
+        if log_callback:
+            log_callback("正在向 CPA 获取 Antigravity OAuth 授权链接...")
+        auth_payload = client.get_antigravity_auth_url(email)
+        auth_url, api_state = _extract_auth_url_and_state(auth_payload)
+        if not auth_url:
+            return {"success": False, "message": "CPA 未返回有效授权链接"}
+
+        if log_callback:
+            log_callback("已获取授权链接，开始自动执行 OAuth 并捕获回调...")
+        capture_result = open_and_run_antigravity_oauth(
+            browser_id=browser_id,
+            auth_url=auth_url,
+            capture_timeout_seconds=oauth_capture_timeout_seconds,
+            log_callback=log_callback,
+        )
+        if not capture_result.get("success"):
+            error_code = capture_result.get("error") or "callback_capture_failed"
+            error_msg = capture_result.get("message") or "callback capture failed"
+            DBManager.upsert_account(email, status="error", message=error_code)
+            return {"success": False, "message": f"{error_code}: {error_msg}"}
+
+        callback_url = str(capture_result.get("callback_url") or "").strip()
+        callback_state = str(capture_result.get("state") or "").strip()
+        if not callback_url:
+            DBManager.upsert_account(email, status="error", message="callback_not_captured")
+            return {"success": False, "message": "callback_not_captured: empty callback url"}
+
+        if log_callback:
+            log_callback("已捕获 OAuth 回调，正在提交给 CPA...")
+        client.submit_oauth_callback(callback_url)
+
+        state = callback_state or api_state
+        if not state:
+            DBManager.upsert_account(email, status="error", message="state_missing")
+            return {"success": False, "message": "state_missing: callback or auth response missing state"}
+
+        if log_callback:
+            log_callback("回调提交成功，正在轮询 CPA 认证状态...")
+
+        deadline = time.time() + max(1, poll_timeout_seconds)
+        last_status = "wait"
+        last_message = ""
+        while time.time() < deadline:
+            status_payload = client.get_auth_status(state)
+            status_data = status_payload.get("data") if isinstance(status_payload.get("data"), dict) else {}
+            status = str(
+                status_payload.get("status")
+                or status_data.get("status")
+                or ""
+            ).lower()
+            message = str(status_payload.get("message") or status_data.get("message") or "")
+            last_status = status or last_status
+            last_message = message or last_message
+
+            if status == "ok":
+                DBManager.upsert_account(email, status="bound", message="cpa_oauth_bound")
+                return {"success": True, "message": message or "CPA OAuth 绑定成功"}
+            if status in ("error", "failed", "fail"):
+                DBManager.upsert_account(email, status="error", message=message or "cpa_status_error")
+                return {"success": False, "message": message or "CPA OAuth 绑定失败"}
+
+            time.sleep(max(1, poll_interval_seconds))
+
+        DBManager.upsert_account(email, status="error", message=f"cpa_status_timeout:{last_status}")
+        return {
+            "success": False,
+            "message": f"状态轮询超时: {last_status or 'wait'} {last_message}".strip(),
+        }
+    except CpaManagementError as exc:
+        DBManager.upsert_account(email, status="error", message="cpa_management_error")
+        return {"success": False, "message": f"cpa_management_error: {exc}"}
+    except Exception as exc:
+        DBManager.upsert_account(email, status="error", message="cpa_oauth_bind_error")
+        return {"success": False, "message": str(exc)}
 
 
 def execute_get_sheerlink(email: str, log_callback=None, close_after: bool = True) -> dict:
