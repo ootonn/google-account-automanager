@@ -49,7 +49,7 @@ def test_execute_cpa_oauth_bind_success(monkeypatch):
     monkeypatch.setattr(
         tasks,
         "open_and_run_antigravity_oauth",
-        lambda browser_id, auth_url, capture_timeout_seconds, log_callback: {
+        lambda browser_id, auth_url, capture_timeout_seconds, log_callback, expected_state=None: {
             "success": True,
             "callback_url": "https://callback.example.com/?code=abc&state=state-1",
             "state": "state-1",
@@ -86,7 +86,7 @@ def test_execute_cpa_oauth_bind_when_callback_not_captured(monkeypatch):
     monkeypatch.setattr(
         tasks,
         "open_and_run_antigravity_oauth",
-        lambda browser_id, auth_url, capture_timeout_seconds, log_callback: {
+        lambda browser_id, auth_url, capture_timeout_seconds, log_callback, expected_state=None: {
             "success": False,
             "error": "callback_not_captured",
             "message": "timeout",
@@ -96,3 +96,51 @@ def test_execute_cpa_oauth_bind_when_callback_not_captured(monkeypatch):
     result = tasks.execute_cpa_oauth_bind("a@example.com", log_callback=None, close_after=False)
     assert result["success"] is False
     assert "callback_not_captured" in result["message"]
+
+
+def test_execute_cpa_oauth_bind_when_state_mismatch(monkeypatch):
+    submit_called = {"value": False}
+
+    monkeypatch.setattr(
+        tasks,
+        "_get_cpa_runtime_config",
+        lambda: {
+            "base_url": "https://cpa.example.com",
+            "management_token": "token",
+            "poll_timeout_seconds": 5,
+            "poll_interval_seconds": 1,
+            "oauth_capture_timeout_seconds": 3,
+        },
+    )
+    monkeypatch.setattr(tasks, "ensure_browser_window", lambda email, log_callback=None: "browser-1")
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get_antigravity_auth_url(self, email):
+            return {"url": "https://auth.example.com", "state": "state-expected"}
+
+        def submit_oauth_callback(self, callback_url):
+            submit_called["value"] = True
+            return {"success": True}
+
+        def get_auth_status(self, state):
+            return {"status": "ok", "message": "bound"}
+
+    monkeypatch.setattr(tasks, "CpaManagementClient", FakeClient)
+    monkeypatch.setattr(
+        tasks,
+        "open_and_run_antigravity_oauth",
+        lambda browser_id, auth_url, capture_timeout_seconds, log_callback, expected_state=None: {
+            "success": True,
+            "callback_url": "https://callback.example.com/?code=abc&state=state-unexpected",
+            "state": "state-unexpected",
+            "message": "callback_captured",
+        },
+    )
+
+    result = tasks.execute_cpa_oauth_bind("a@example.com", log_callback=None, close_after=False)
+    assert result["success"] is False
+    assert "state_mismatch" in result["message"]
+    assert submit_called["value"] is False

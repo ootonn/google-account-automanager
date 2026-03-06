@@ -72,6 +72,7 @@ def open_and_run_antigravity_oauth(
     auth_url: str,
     capture_timeout_seconds: int = 180,
     log_callback: Optional[Callable[[str], None]] = None,
+    expected_state: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Open BitBrowser window and capture callback URL automatically.
@@ -108,6 +109,7 @@ def open_and_run_antigravity_oauth(
                 auth_url=auth_url,
                 capture_timeout_seconds=capture_timeout_seconds,
                 log_callback=log_callback,
+                expected_state=expected_state,
             )
         )
         return result
@@ -124,18 +126,29 @@ async def _capture_callback_from_browser(
     auth_url: str,
     capture_timeout_seconds: int,
     log_callback: Optional[Callable[[str], None]] = None,
+    expected_state: Optional[str] = None,
 ) -> Dict[str, Any]:
     captured: Dict[str, Optional[str]] = {"callback_url": None}
+    mismatch_seen = {"value": False}
     done_event = asyncio.Event()
     attached_pages: Set[int] = set()
 
     def _capture_if_callback(url: str) -> None:
         if captured["callback_url"] is not None:
             return
-        if is_oauth_callback_url(url):
-            captured["callback_url"] = url
-            _safe_log(log_callback, f"已捕获 OAuth 回调: {_sanitize_callback_url(url)}")
-            done_event.set()
+        if not is_oauth_callback_url(url):
+            return
+        callback_state = _extract_state(url)
+        if expected_state and callback_state != expected_state:
+            mismatch_seen["value"] = True
+            _safe_log(
+                log_callback,
+                "检测到 state 不匹配回调，已忽略并继续等待目标回调。",
+            )
+            return
+        captured["callback_url"] = url
+        _safe_log(log_callback, f"已捕获 OAuth 回调: {_sanitize_callback_url(url)}")
+        done_event.set()
 
     def _attach_page(page: Page) -> None:
         page_id = id(page)
@@ -155,10 +168,8 @@ async def _capture_callback_from_browser(
             context = await browser.new_context()
 
         context.on("page", _attach_page)
-        for existing_page in context.pages:
-            _attach_page(existing_page)
-
-        page = context.pages[0] if context.pages else await context.new_page()
+        # Always use a fresh page to avoid stale callback URLs from pre-existing tabs.
+        page = await context.new_page()
         _attach_page(page)
 
         _safe_log(log_callback, "正在打开 Antigravity OAuth 授权页...")
@@ -173,6 +184,12 @@ async def _capture_callback_from_browser(
         try:
             await asyncio.wait_for(done_event.wait(), timeout=capture_timeout_seconds)
         except asyncio.TimeoutError:
+            if mismatch_seen["value"]:
+                return {
+                    "success": False,
+                    "error": "state_mismatch",
+                    "message": "callback state mismatch with expected state",
+                }
             return {
                 "success": False,
                 "error": "callback_not_captured",

@@ -716,6 +716,7 @@ def execute_cpa_oauth_bind(email: str, log_callback=None, close_after: bool = Tr
             auth_url=auth_url,
             capture_timeout_seconds=oauth_capture_timeout_seconds,
             log_callback=log_callback,
+            expected_state=api_state or None,
         )
         if not capture_result.get("success"):
             error_code = capture_result.get("error") or "callback_capture_failed"
@@ -729,14 +730,21 @@ def execute_cpa_oauth_bind(email: str, log_callback=None, close_after: bool = Tr
             DBManager.upsert_account(email, status="error", message="callback_not_captured")
             return {"success": False, "message": "callback_not_captured: empty callback url"}
 
-        if log_callback:
-            log_callback("已捕获 OAuth 回调，正在提交给 CPA...")
-        client.submit_oauth_callback(callback_url)
+        if api_state and callback_state and callback_state != api_state:
+            DBManager.upsert_account(email, status="error", message="state_mismatch")
+            return {
+                "success": False,
+                "message": f"state_mismatch: expected={api_state} got={callback_state}",
+            }
 
-        state = callback_state or api_state
+        state = api_state or callback_state
         if not state:
             DBManager.upsert_account(email, status="error", message="state_missing")
             return {"success": False, "message": "state_missing: callback or auth response missing state"}
+
+        if log_callback:
+            log_callback("已捕获 OAuth 回调，正在提交给 CPA...")
+        client.submit_oauth_callback(callback_url)
 
         if log_callback:
             log_callback("回调提交成功，正在轮询 CPA 认证状态...")
