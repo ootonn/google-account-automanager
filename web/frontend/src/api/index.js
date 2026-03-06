@@ -5,6 +5,9 @@ const api = axios.create({
   timeout: 30000,
 })
 
+export const CPA_OAUTH_TASK_TYPE = 'cpa_oauth_bind'
+export const CPA_PROVIDER_NAME = 'antigravity'
+
 // 账号相关 API
 export const accountsApi = {
   list: (params) => api.get('/accounts', { params }),

@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { accountsApi, tasksApi, configApi } from '../api'
+import { accountsApi, tasksApi, configApi, CPA_OAUTH_TASK_TYPE, CPA_PROVIDER_NAME } from '../api'
 import { useWebSocket } from '../stores/websocket'
 
 const ws = useWebSocket()
@@ -24,6 +24,11 @@ const config = ref({
   card_exp_year: '',
   card_cvv: '',
   card_zip: '',
+  cpa_base_url: '',
+  cpa_management_token: '',
+  cpa_poll_timeout_seconds: 300,
+  cpa_poll_interval_seconds: 2,
+  cpa_oauth_capture_timeout_seconds: 180,
 })
 
 const taskTypes = [
@@ -34,7 +39,13 @@ const taskTypes = [
   { value: 'get_sheerlink', label: '获取 SheerLink' },
   { value: 'bind_card', label: '绑卡订阅' },
   { value: 'change_password', label: '修改密码' },
+  { value: CPA_OAUTH_TASK_TYPE, label: 'CPA OAuth 绑定(Antigravity)' },
 ]
+
+const cpaProviderLabel = computed(() => {
+  if (!CPA_PROVIDER_NAME) return 'Antigravity'
+  return CPA_PROVIDER_NAME.charAt(0).toUpperCase() + CPA_PROVIDER_NAME.slice(1)
+})
 
 const selectAll = computed({
   get: () => selectedEmails.value.length === accounts.value.length && accounts.value.length > 0,
@@ -227,7 +238,11 @@ async function saveConfig() {
       <!-- 配置面板（可折叠） -->
       <div v-if="showConfig" class="mt-4 pt-4 border-t border-gray-200">
         <div v-if="configLoading" class="text-center text-gray-500 py-2">加载中...</div>
-        <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div v-else>
+          <div class="mb-3 rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-sm text-blue-700">
+            CPA OAuth 仅支持 {{ cpaProviderLabel }}，回调地址自动捕获，无需手工粘贴。
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
             <label class="block text-xs font-medium text-gray-700 mb-1">SheerID API Key</label>
             <input
@@ -265,6 +280,40 @@ async function saveConfig() {
               <label class="block text-xs font-medium text-gray-700 mb-1">ZIP</label>
               <input type="text" v-model="config.card_zip" placeholder="邮编" class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm" />
             </div>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">CPA Base URL</label>
+            <input
+              type="text"
+              v-model="config.cpa_base_url"
+              placeholder="https://cpa.example.com"
+              class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+            />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">CPA Management Token</label>
+            <input
+              type="password"
+              v-model="config.cpa_management_token"
+              placeholder="Management Token"
+              class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+            />
+          </div>
+          <div class="grid grid-cols-3 gap-2">
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">轮询超时(s)</label>
+              <input type="number" min="1" v-model.number="config.cpa_poll_timeout_seconds" class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">轮询间隔(s)</label>
+              <input type="number" min="1" v-model.number="config.cpa_poll_interval_seconds" class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">回调捕获超时(s)</label>
+              <input type="number" min="1" v-model.number="config.cpa_oauth_capture_timeout_seconds" class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm" />
+            </div>
+          </div>
+          <div class="flex items-end">
             <button
               @click="saveConfig"
               :disabled="configSaving"
@@ -273,6 +322,7 @@ async function saveConfig() {
               {{ configSaving ? '...' : '保存' }}
             </button>
           </div>
+        </div>
         </div>
       </div>
     </div>
