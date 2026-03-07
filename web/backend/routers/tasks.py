@@ -7,6 +7,7 @@ import threading
 import uuid
 import time
 from typing import Dict, List
+from urllib.parse import parse_qs, urlparse
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 
@@ -188,6 +189,19 @@ def ensure_browser_window(email: str, log_callback=None) -> str | None:
                     DBManager.clear_browser_id(email)
             else:
                 DBManager.clear_browser_id(email)
+
+        existing_browsers = get_browser_list(page=0, pageSize=1000) or []
+        matching_browsers = [b for b in existing_browsers if _browser_matches_email(b, email)]
+        android_matches = [b for b in matching_browsers if _is_android_browser(b)]
+        if android_matches:
+            matched_browser = sorted(android_matches, key=lambda b: b.get("seq", 0))[0]
+            matched_browser_id = matched_browser.get("id")
+            matched_info = get_browser_info(matched_browser_id) if matched_browser_id else None
+            matched_payload = matched_info or matched_browser
+            if matched_browser_id and _browser_matches_email(matched_payload, email) and _is_android_browser(matched_payload):
+                save_browser_to_db(email, matched_browser_id)
+                _log(f"Reused existing Android browser window: {matched_browser_id[:8]}...")
+                return matched_browser_id
 
         # 没有窗口，需要创建
         _log("账号没有浏览器窗口，正在自动创建...")
@@ -699,6 +713,14 @@ def execute_cpa_oauth_bind(email: str, log_callback=None, close_after: bool = Tr
         browser_id = ensure_browser_window(email, log_callback)
         if not browser_id:
             return {"success": False, "message": "账号不存在或无法创建浏览器窗口"}
+        account = DBManager.get_account_by_email(email) or {}
+        account_context = {
+            "email": email,
+            "password": account.get("password") or "",
+            "recovery_email": account.get("recovery_email") or "",
+            "secret_key": account.get("secret_key") or "",
+        }
+
 
         client = CpaManagementClient(base_url, token)
 
@@ -717,6 +739,7 @@ def execute_cpa_oauth_bind(email: str, log_callback=None, close_after: bool = Tr
             capture_timeout_seconds=oauth_capture_timeout_seconds,
             log_callback=log_callback,
             expected_state=api_state or None,
+            account_context=account_context,
         )
         if not capture_result.get("success"):
             error_code = capture_result.get("error") or "callback_capture_failed"
@@ -742,8 +765,16 @@ def execute_cpa_oauth_bind(email: str, log_callback=None, close_after: bool = Tr
             DBManager.upsert_account(email, status="error", message="state_missing")
             return {"success": False, "message": "state_missing: callback or auth response missing state"}
 
+        callback_query = parse_qs(urlparse(callback_url).query)
+        present_fields = ["provider", "callback_url", "redirect_url"]
+        if (callback_query.get("state") or [""])[0]:
+            present_fields.append("state")
+        if (callback_query.get("code") or [""])[0]:
+            present_fields.append("code")
+        if (callback_query.get("error") or [""])[0]:
+            present_fields.append("error")
         if log_callback:
-            log_callback("已捕获 OAuth 回调，正在提交给 CPA...")
+            log_callback(f"Submitting callback to CPA with fields: {', '.join(present_fields)}")
         client.submit_oauth_callback(callback_url)
 
         if log_callback:

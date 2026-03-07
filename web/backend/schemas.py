@@ -2,7 +2,7 @@
 Pydantic 数据模型
 """
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from enum import Enum
 
 
@@ -47,8 +47,7 @@ class Account(AccountBase):
     browser_id: Optional[str] = None
     browser_config: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AccountListResponse(BaseModel):

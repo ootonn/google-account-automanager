@@ -13,7 +13,7 @@ def test_build_auth_url_request_contains_antigravity_provider():
     client = CpaManagementClient("https://cpa.example.com", "token")
     req = client._build_auth_url_request("a@example.com")
     assert req["method"] == "GET"
-    assert req["path"] == "/api/management/oauth/antigravity/auth-url"
+    assert req["path"] == "/v0/management/antigravity-auth-url"
     assert req["params"]["provider"] == "antigravity"
     assert req["params"]["email"] == "a@example.com"
 
@@ -22,8 +22,22 @@ def test_submit_callback_request_contains_antigravity_provider():
     client = CpaManagementClient("https://cpa.example.com", "token")
     req = client._build_submit_callback_request("https://callback.example.com/?code=1&state=2")
     assert req["method"] == "POST"
-    assert req["path"] == "/api/management/oauth/antigravity/callback"
+    assert req["path"] == "/v0/management/oauth-callback"
     assert req["json"]["provider"] == "antigravity"
+    assert req["json"]["redirect_url"] == "https://callback.example.com/?code=1&state=2"
+    assert req["json"]["callback_url"] == "https://callback.example.com/?code=1&state=2"
+    assert req["json"]["state"] == "2"
+    assert req["json"]["code"] == "1"
+    assert req["json"]["error"] == ""
+
+
+def test_build_status_request_uses_management_endpoint():
+    client = CpaManagementClient("https://cpa.example.com", "token")
+    req = client._build_status_request("state-1")
+    assert req["method"] == "GET"
+    assert req["path"] == "/v0/management/get-auth-status"
+    assert req["params"]["provider"] == "antigravity"
+    assert req["params"]["state"] == "state-1"
 
 
 def test_get_antigravity_auth_url_maps_network_error(monkeypatch):

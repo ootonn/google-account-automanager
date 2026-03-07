@@ -1,10 +1,17 @@
 #!/bin/bash
-# 启动 Web UI 前端
 
 cd "$(dirname "$0")/frontend"
 
-echo "启动 Auto BitBrowser Web 前端..."
-echo "访问地址: http://localhost:5173"
+FRONTEND_PORT="${FRONTEND_PORT:-5173}"
+VITE_BACKEND_TARGET="${VITE_BACKEND_TARGET:-http://127.0.0.1:8000}"
+VITE_API_BASE_URL="${VITE_API_BASE_URL:-/api}"
+
+export VITE_BACKEND_TARGET
+export VITE_API_BASE_URL
+
+echo "Starting Auto BitBrowser Web frontend..."
+echo "Frontend URL : http://127.0.0.1:${FRONTEND_PORT}"
+echo "Backend proxy: ${VITE_BACKEND_TARGET}"
 echo ""
 
-npm run dev
+npm run dev -- --host 127.0.0.1 --port "$FRONTEND_PORT" --strictPort

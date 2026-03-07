@@ -1,25 +1,60 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
+function getDefaultWebSocketUrl() {
+  if (typeof window === 'undefined') {
+    return 'ws://127.0.0.1:8000/ws'
+  }
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${protocol}//${window.location.host}/ws`
+}
+
+const webSocketUrl = import.meta.env.VITE_WS_URL || getDefaultWebSocketUrl()
+
 export const useWebSocket = defineStore('websocket', () => {
   const connected = ref(false)
   const logs = ref([])
   const taskProgress = ref(null)
-  const accountsProgress = ref({})  // 新增：每个账号的独立进度 {email -> progress}
+  const accountsProgress = ref({})
   let ws = null
+  let heartbeatTimer = null
   let reconnectTimer = null
+  let shouldReconnect = true
+
+  function clearHeartbeat() {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer)
+      heartbeatTimer = null
+    }
+  }
+
+  function scheduleReconnect() {
+    if (reconnectTimer) {
+      return
+    }
+
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null
+      connect()
+    }, 3000)
+  }
 
   function connect() {
-    if (ws && ws.readyState === WebSocket.OPEN) return
+    shouldReconnect = true
 
-    ws = new WebSocket('ws://localhost:8000/ws')
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+      return
+    }
+
+    ws = new WebSocket(webSocketUrl)
 
     ws.onopen = () => {
       connected.value = true
       console.log('[WS] 已连接')
-      // 心跳
-      setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
+      clearHeartbeat()
+      heartbeatTimer = setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send('ping')
         }
       }, 30000)
@@ -27,9 +62,11 @@ export const useWebSocket = defineStore('websocket', () => {
 
     ws.onclose = () => {
       connected.value = false
+      clearHeartbeat()
       console.log('[WS] 已断开')
-      // 自动重连
-      reconnectTimer = setTimeout(connect, 3000)
+      if (shouldReconnect) {
+        scheduleReconnect()
+      }
     }
 
     ws.onerror = (err) => {
@@ -51,15 +88,12 @@ export const useWebSocket = defineStore('websocket', () => {
   function handleMessage(msg) {
     if (msg.type === 'task_progress') {
       taskProgress.value = msg.data
-      // 任务完成或失败时，清理账号进度
       if (msg.data.status === 'completed' || msg.data.status === 'failed') {
-        // 延迟清理，让用户能看到最终状态
         setTimeout(() => {
           accountsProgress.value = {}
         }, 5000)
       }
     } else if (msg.type === 'account_progress') {
-      // 新增：处理单个账号的进度
       const data = msg.data
       accountsProgress.value = {
         ...accountsProgress.value,
@@ -71,14 +105,13 @@ export const useWebSocket = defineStore('websocket', () => {
           total: data.total,
           completed: data.completed,
           failed: data.failed,
-        }
+        },
       }
     } else if (msg.type === 'log') {
       logs.value.unshift({
         ...msg.data,
         time: new Date().toLocaleTimeString(),
       })
-      // 保留最近 100 条
       if (logs.value.length > 100) {
         logs.value = logs.value.slice(0, 100)
       }
@@ -86,11 +119,17 @@ export const useWebSocket = defineStore('websocket', () => {
   }
 
   function disconnect() {
+    shouldReconnect = false
+
     if (reconnectTimer) {
       clearTimeout(reconnectTimer)
+      reconnectTimer = null
     }
+    clearHeartbeat()
     if (ws) {
-      ws.close()
+      const socket = ws
+      ws = null
+      socket.close()
     }
   }
 

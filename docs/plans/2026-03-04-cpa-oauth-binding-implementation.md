@@ -4,7 +4,7 @@
 
 **Goal:** 在当前 BitBrowser 任务系统中新增 CPA OAuth 批量绑定任务，确保 OAuth 全流程都在 BitBrowser 内执行，并且支持失败重试与清晰日志。
 
-**Architecture:** 后端先向 CPA 管理 API 申请 `codex-auth-url`，再通过 BitBrowser+Playwright 打开授权页完成登录；随后轮询 CPA 的 `get-auth-status` 确认完成。任务编排继续复用现有 `TaskExecutor` 并发模型，前端只新增任务类型与 CPA 配置字段。
+**Architecture:** 后端先向 CPA 管理 API 申请 `antigravity-auth-url`，再通过 BitBrowser+Playwright 打开授权页完成登录；随后轮询 CPA 的 `get-auth-status` 确认完成。任务编排继续复用现有 `TaskExecutor` 并发模型，前端只新增任务类型与 CPA 配置字段。
 
 **Tech Stack:** Python 3.11, FastAPI, requests, Playwright (CDP), BitBrowser API, Vue 3
 
@@ -80,7 +80,7 @@ Expected: FAIL（模块不存在）
 
 ```python
 def request_codex_auth_url(base_url, token, is_webui=True):
-    # GET /v0/management/codex-auth-url
+    # GET /v0/management/antigravity-auth-url
     # return {"url": "...", "state": "..."}
 ```
 

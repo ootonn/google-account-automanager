@@ -16,7 +16,7 @@
 
 ### 方案 A（推荐）：CPA OAuth URL + BitBrowser 授权 + 状态轮询
 - 流程：
-  1. 后端调用 CPA `GET /v0/management/codex-auth-url` 获取 `url` 与 `state`。
+  1. 后端调用 CPA `GET /v0/management/antigravity-auth-url` 获取 `url` 与 `state`。
   2. 在目标账号对应 BitBrowser 窗口打开该 `url` 并完成授权。
   3. Playwright 自动捕获 OAuth callback URL（`framenavigated` + `page.url` 检测）。
   4. 后端调用 `POST /v0/management/oauth-callback` 自动提交 callback URL。
@@ -40,7 +40,7 @@
 
 ## 推荐结论
 - 采用**方案 A**，绑定链路固定为 Antigravity：
-  - 主链路：`codex-auth-url` + 自动捕获 callback + `oauth-callback` + `get-auth-status`。
+  - 主链路：`antigravity-auth-url` + 自动捕获 callback + `oauth-callback` + `get-auth-status`。
   - 不提供 provider 切换入口，所有 CPA 管理 API 请求都写死 `provider=antigravity`。
 
 ## 数据与状态设计（保持最小改动）

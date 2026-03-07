@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 import time
+from urllib.parse import parse_qs, urlparse
 
 import requests
 
@@ -63,7 +64,7 @@ class CpaManagementClient:
     def _build_auth_url_request(self, email: str) -> Dict[str, Any]:
         req = _RequestConfig(
             method="GET",
-            path="/api/management/oauth/antigravity/auth-url",
+            path="/v0/management/antigravity-auth-url",
             params={
                 "provider": self.PROVIDER,
                 "email": email,
@@ -77,12 +78,20 @@ class CpaManagementClient:
         }
 
     def _build_submit_callback_request(self, callback_url: str) -> Dict[str, Any]:
+        query = parse_qs(urlparse(callback_url).query)
+        state = query.get("state", [""])[0]
+        code = query.get("code", [""])[0]
+        oauth_error = query.get("error", [""])[0]
         req = _RequestConfig(
             method="POST",
-            path="/api/management/oauth/antigravity/callback",
+            path="/v0/management/oauth-callback",
             json={
                 "provider": self.PROVIDER,
+                "redirect_url": callback_url,
                 "callback_url": callback_url,
+                "state": state,
+                "code": code,
+                "error": oauth_error,
             },
         )
         return {
@@ -95,7 +104,7 @@ class CpaManagementClient:
     def _build_status_request(self, state: str) -> Dict[str, Any]:
         req = _RequestConfig(
             method="GET",
-            path="/api/management/oauth/antigravity/status",
+            path="/v0/management/get-auth-status",
             params={
                 "provider": self.PROVIDER,
                 "state": state,
